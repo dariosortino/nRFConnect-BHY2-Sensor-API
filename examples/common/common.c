@@ -36,7 +36,12 @@
  *
  */
 
+
 #include "common.h"
+
+#include <zephyr.h>
+#include <sys/printk.h>
+#include <drivers/i2c.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -46,64 +51,36 @@
 #include "bhy2_parse.h"
 #include "bhy2.h"
 
-#include "coines.h"
+/* The devicetree node identifier for the "bhi260ap" alias. It is a sensor alias under the i2c */
+#define I2C0_NODE DT_NODELABEL(bhi260ap_sb)
 
 #define BHA260_SHUTTLE_ID 0x139
 #define BHI260_SHUTTLE_ID 0x119
 
-bool get_interrupt_status(void)
+
+static const struct i2c_dt_spec dev_i2c = I2C_DT_SPEC_GET(I2C0_NODE);
+
+int8_t bhy2_i2c_read(uint8_t reg_addr, uint8_t *reg_data, uint32_t length, void *intf_ptr)
 {
-    enum coines_pin_direction pin_direction = COINES_PIN_DIRECTION_IN;
-    enum coines_pin_value pin_value = COINES_PIN_VALUE_LOW;
+    (void)intf_ptr;
+    uint8_t buffer[1];
+    buffer[0] = reg_addr;
 
-    coines_get_pin_config(BHY260_INT_PIN, &pin_direction, &pin_value);
-
-    return (pin_value == COINES_PIN_VALUE_HIGH) ? true : false;
-}
-
-char* get_coines_error(int16_t rslt)
-{
-    char *ret = " ";
-
-    switch (rslt)
-    {
-        case COINES_SUCCESS:
-            break;
-        case COINES_E_FAILURE:
-            ret = "[COINES Error] Generic failure";
-            break;
-        case COINES_E_COMM_IO_ERROR:
-            ret = "[COINES Error] Communication IO failed. Check connections with the sensor";
-            break;
-        case COINES_E_COMM_INIT_FAILED:
-            ret = "[COINES Error] Communication initialization failed";
-            break;
-        case COINES_E_UNABLE_OPEN_DEVICE:
-            ret = "[COINES Error] Unable to open device. Check if the board is in use";
-            break;
-        case COINES_E_DEVICE_NOT_FOUND:
-            ret = "[COINES Error] Device not found. Check if the board is powered on";
-            break;
-        case COINES_E_UNABLE_CLAIM_INTF:
-            ret = "[COINES Error] Unable to claim interface. Check if the board is in use";
-            break;
-        case COINES_E_MEMORY_ALLOCATION:
-            ret = "[COINES Error] Error allocating memory";
-            break;
-        case COINES_E_NOT_SUPPORTED:
-            ret = "[COINES Error] Feature not supported";
-            break;
-        case COINES_E_NULL_PTR:
-            ret = "[COINES Error] Null pointer error";
-            break;
-        case COINES_E_COMM_WRONG_RESPONSE:
-            ret = "[COINES Error] Unexpected response";
-            break;
-        default:
-            ret = "[COINES Error] Unknown error code";
+    // return coines_read_i2c(BHY_I2C_ADD, reg_addr, reg_data, (uint16_t)length);
+    return i2c_write_read_dt(&dev_i2c, buffer, 1, reg_data, length);
     }
 
-    return ret;
+int8_t bhy2_i2c_write(uint8_t reg_addr, const uint8_t *reg_data, uint32_t length, void *intf_ptr)
+{
+    uint8_t buffer[length+1];
+    buffer[0] = reg_addr;
+    memcpy(&buffer[1], reg_data, length);
+
+    (void)intf_ptr;
+
+    // return coines_write_i2c(BHY_I2C_ADD, reg_addr, (uint8_t*)reg_data, (uint16_t)length);
+    return i2c_write_dt(&dev_i2c, buffer, length+1);
+
 }
 
 char* get_api_error(int8_t error_code)
@@ -148,97 +125,12 @@ char* get_api_error(int8_t error_code)
     return ret;
 }
 
-void setup_interfaces(bool reset_power, enum bhy2_intf intf)
-{
-    int16_t coines_rslt = coines_open_comm_intf(COINES_COMM_INTF_USB);
-    enum coines_pin_direction pin_direction = COINES_PIN_DIRECTION_IN;
-    enum coines_pin_value pin_value = COINES_PIN_VALUE_LOW;
 
-    if (coines_rslt)
-    {
-        printf("%s\n", get_coines_error(coines_rslt));
-    }
-
-    struct coines_board_info board_info;
-    coines_rslt = coines_get_board_info(&board_info);
-    if (coines_rslt == COINES_SUCCESS)
-    {
-        if (BHA260_SHUTTLE_ID == board_info.shuttle_id)
-        {
-            /*printf("Found BHA260 Shuttle\n"); */
-        }
-        else if (BHI260_SHUTTLE_ID == board_info.shuttle_id)
-        {
-            /*printf("Found BHI260 Shuttle\n"); */
-        }
-        else
-        {
-            /*printf("Expecting a BHA260 or BHI260 shuttle\n"); */
-        }
-    }
-    else
-    {
-        printf("%s\r\n", get_coines_error(coines_rslt));
-    }
-
-    if (reset_power)
-    {
-        coines_set_shuttleboard_vdd_vddio_config(0, 0);
-        coines_delay_msec(10);
-    }
-
-    if (intf == BHY2_SPI_INTERFACE)
-    {
-        coines_config_spi_bus(COINES_SPI_BUS_0, COINES_SPI_SPEED_1_MHZ, COINES_SPI_MODE0);
-    }
-    else
-    {
-        coines_config_i2c_bus(COINES_I2C_BUS_0, COINES_I2C_FAST_MODE);
-    }
-    coines_set_shuttleboard_vdd_vddio_config(1800, 1800);
-
-    coines_set_pin_config(BHY260_INT_PIN, pin_direction, pin_value);
-
-    coines_delay_msec(10);
-}
-
-void close_interfaces(void)
-{
-    coines_close_comm_intf(COINES_COMM_INTF_USB);
-}
-
-int8_t bhy2_spi_read(uint8_t reg_addr, uint8_t *reg_data, uint32_t length, void *intf_ptr)
-{
-    (void)intf_ptr;
-
-    return coines_read_spi(BHY260_CS_PIN, reg_addr, reg_data, (uint16_t)length);
-}
-
-int8_t bhy2_spi_write(uint8_t reg_addr, const uint8_t *reg_data, uint32_t length, void *intf_ptr)
-{
-    (void)intf_ptr;
-
-    return coines_write_spi(BHY260_CS_PIN, reg_addr, (uint8_t*)reg_data, (uint16_t)length);
-}
-
-int8_t bhy2_i2c_read(uint8_t reg_addr, uint8_t *reg_data, uint32_t length, void *intf_ptr)
-{
-    (void)intf_ptr;
-
-    return coines_read_i2c(0x28, reg_addr, reg_data, (uint16_t)length);
-}
-
-int8_t bhy2_i2c_write(uint8_t reg_addr, const uint8_t *reg_data, uint32_t length, void *intf_ptr)
-{
-    (void)intf_ptr;
-
-    return coines_write_i2c(0x28, reg_addr, (uint8_t*)reg_data, (uint16_t)length);
-}
 
 void bhy2_delay_us(uint32_t us, void *private_data)
 {
     (void)private_data;
-    coines_delay_usec(us);
+    k_usleep(us);
 }
 
 char* get_sensor_error_text(uint8_t sensor_error)
