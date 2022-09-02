@@ -4,6 +4,8 @@ Orignal code by Bosch (https://github.com/BoschSensortec/BHY2-Sensor-API), porte
 
 BHY2* libraries are unchanged, the only ported portions are common.c/h and the quaternion.c example.
 
+If you are using **nRF5 SDK** insted, please have a look at https://github.com/robcazzaro/nRF52-BHY2-Sensor-API
+
 # BHI260AP - nRF53DK Connection
 
 BHI260AB connected to BMM150 via I2C, as the Shuttle board. In fact, it has been tested using the shuttle board itself.
